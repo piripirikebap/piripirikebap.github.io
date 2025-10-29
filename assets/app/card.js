@@ -5,7 +5,7 @@ var date = new Date();
 
 var updateText = document.querySelector(".bottom_update_value");
 
-// Ustawienie daty ostatniej aktualizacji – nadal można użyć localStorage tylko dla update
+// Ustawienie daty ostatniej aktualizacji
 if (localStorage.getItem("update") == null){
     localStorage.setItem("update", "24.12.2024")
 }
@@ -47,14 +47,14 @@ function getQueryParams() {
 function loadReadyDataFromURL(){
     const query = getQueryParams();
 
-    // Kod zabezpieczający – jeśli brak jakiegoś parametru, wpisujemy pusty string
     const safe = key => query[key] ? query[key] : "";
 
-    // Ustawienie płci
+    // Płeć
     let textSex = "";
     if(safe("sex") === "m") textSex = "Mężczyzna";
     else if(safe("sex") === "k") textSex = "Kobieta";
 
+    // Dane podstawowe
     setData("name", safe("name").toUpperCase());
     setData("surname", safe("surname").toUpperCase());
     setData("nationality", safe("nationality").toUpperCase());
@@ -68,13 +68,15 @@ function loadReadyDataFromURL(){
     setData("birthPlace", safe("birthPlace").toUpperCase());
     setData("countryOfBirth", safe("countryOfBirth").toUpperCase());
     setData("adress", ("ul. " + safe("address1") + "<br>" + safe("address2") + " " + safe("city")).toUpperCase());
+
+    // Dane ID
     setData("pesel", safe("pesel"));
     setData("givenDate", safe("givenDate"));
     setData("expiryDate", safe("expiryDate"));
 
     if(safe("image")) setImage(safe("image"));
 
-    // Home date – jeśli nie podano w URL, generujemy losowo
+    // Home date
     if(!safe("homeDate")){
         var homeDay = getRandom(1, 25);
         var homeMonth = getRandom(0, 12);
@@ -89,10 +91,12 @@ function loadReadyDataFromURL(){
     }
 }
 
+// Funkcja ustawiająca obraz
 function setImage(image){
     document.querySelector(".id_own_image").style.backgroundImage = `url(${image})`;
 }
 
+// Funkcja ustawiająca tekst w elemencie
 function setData(id, value){
     const el = document.getElementById(id);
     if(el) el.innerHTML = value;
