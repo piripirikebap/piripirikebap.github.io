@@ -101,195 +101,135 @@
     <script src="assets/app/bar.js"></script>
 <script src="assets/app/bar.js"></script>
 <script>
-  // Ustawienia nawigacji
-  if (localStorage.getItem('top') === 'card') {
-    const back = document.querySelector('.back_text_fixed');
-    back.textContent = 'mDowód';
-    back.onclick = () => { sendTo('card'); };
-  }
+let html5QrCode = null;
+let selectedCameraId = null;
 
-  // Zamknięcie ostrzeżenia
-  function closeWarning() {
-    document.querySelector('.warning-box')?.classList.add('hidden');
-  }
-  document.querySelector('.warning-close')?.addEventListener('click', closeWarning);
-
-  // Modal błędu
-  function showError(title = 'Wystąpił błąd', desc = 'Nie możemy wyświetlić Twoich danych.<br>Spróbuj ponownie później.') {
-    const errorBox = document.querySelector('.error_box');
-    if (!errorBox) return;
-
-    errorBox.style.display = 'block';
-    errorBox.innerHTML = `
-      <div class="loading"></div>
-      <p class="error_title">Ładowanie...</p>
-    `;
-    document.querySelector('.error').classList.add('error_open');
-
-    setTimeout(() => {
-      errorBox.innerHTML = `
-        <div class="error_icon">
-          <svg width="70" height="70" viewBox="0 0 70 70">
-            <circle cx="35" cy="35" r="35" fill="#FF3B30"/>
-            <path d="M47 23L23 47M23 23L47 47" stroke="white" stroke-width="4" stroke-linecap="round"/>
-          </svg>
-        </div>
-        <p class="error_title">${title}</p>
-        <p class="error_description">${desc}</p>
-        <button class="error_button retry" onclick="retryAction()">Spróbuj ponownie</button>
-        <button class="error_button back" onclick="sendTo('qr.html')">Wróć</button>
-      `;
-    }, 500);
-  }
-  function retryAction() { startScanner(); }
-
-  // Helper: bezpieczny fetch JSON
-  async function postJson(url, payload) {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    // Jeśli serwer zwróci HTML (np. 404/403), nie próbuj .json()
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`HTTP ${res.status} ${res.statusText}: ${text.slice(0, 200)}`);
-    }
-    const ct = res.headers.get('content-type') || '';
-    if (!ct.includes('application/json')) {
-      const text = await res.text();
-      throw new Error(`Oczekiwano JSON, otrzymano: ${ct || 'brak'}\n${text.slice(0, 200)}`);
-    }
-    return res.json();
-  }
-
-  // End-point weryfikacji (usunęliśmy niezdefiniowane "params")
-  const VALIDATE_URL = '/qr/validate';
-
-  function onScanSuccess(decodedText) {
-    // Wysyłamy odczytany QR
-    postJson(VALIDATE_URL, { qrCode: decodedText })
-      .then(result => {
-        const found = !!result?.found;
-        stopScanner();
-        if (found) {
-          askForPermission(null, decodedText);
-        } else {
-          showError('Nie znaleziono', 'Kod QR jest nieprawidłowy lub wygasł.');
-        }
-      })
-      .catch(err => {
-        console.error('validate(qr) failed:', err);
-        stopScanner();
-        showError('Błąd sieci/serwera', 'Spróbuj ponownie za chwilę.');
-      });
-  }
-  function onScanFailure(_error) {
-    // Ignorujemy pojedyncze nieudane ramki
-  }
-
-  let html5QrCode = null;
-  let selectedCameraId = null;
-
-  async function startScanner() {
-    try {
-      // Wymagany secure context
-      if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-        throw new Error('Strona musi działać przez HTTPS, aby użyć kamery.');
+function onScanSuccess(decodedText) {
+  postJson('/qr/validate', { qrCode: decodedText })
+    .then(result => {
+      stopScanner();
+      if (result?.found) {
+        askForPermission(null, decodedText);
+      } else {
+        showError('Nie znaleziono', 'Kod QR jest nieprawidłowy lub wygasł.');
       }
+    })
+    .catch(err => {
+      console.error(err);
+      stopScanner();
+      showError('Błąd sieci/serwera', 'Spróbuj ponownie za chwilę.');
+    });
+}
 
-      // Pobierz listę kamer i wybierz tylną, jeśli istnieje
-      const devices = await Html5Qrcode.getCameras();
-      if (!devices || !devices.length) throw new Error('Nie wykryto kamery w urządzeniu.');
-      const back = devices.find(d => /back|rear|environment/i.test(d.label));
-      selectedCameraId = (back || devices[0]).id;
+function onScanFailure(_error) {
+  // Ignorujemy pojedyncze nieudane ramki
+}
 
+async function startScanner() {
+  try {
+    if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+      throw new Error('Strona musi działać przez HTTPS.');
+    }
+
+    const devices = await Html5Qrcode.getCameras();
+    if (!devices || !devices.length) throw new Error('Nie wykryto kamery.');
+
+    // Spróbuj znaleźć tylną kamerę
+    const back = devices.find(d => /back|rear|environment/i.test(d.label));
+    selectedCameraId = (back || devices[0]).id;
+
+    if (!html5QrCode) html5QrCode = new Html5Qrcode('reader');
+
+    await html5QrCode.start(
+      { deviceId: { exact: selectedCameraId } },
+      { fps: 10, qrbox: { width: 250, height: 250 } },
+      onScanSuccess,
+      onScanFailure
+    );
+  } catch (e) {
+    console.error('startScanner error:', e);
+    // fallback: użyj facingMode
+    try {
       if (!html5QrCode) html5QrCode = new Html5Qrcode('reader');
-
       await html5QrCode.start(
-        { deviceId: { exact: selectedCameraId } },
+        { facingMode: 'environment' },
         { fps: 10, qrbox: { width: 250, height: 250 } },
         onScanSuccess,
         onScanFailure
       );
-    } catch (e) {
-      console.error('startScanner error:', e);
-      // Fallback – spróbuj bez exact (np. Safari i dziwne etykiety)
-      try {
-        if (!html5QrCode) html5QrCode = new Html5Qrcode('reader');
-        await html5QrCode.start(
-          { facingMode: 'environment' }, // bez "exact"
-          { fps: 10, qrbox: { width: 250, height: 250 } },
-          onScanSuccess,
-          onScanFailure
-        );
-      } catch (e2) {
-        console.error('fallback start failed:', e2);
-        showError('Brak dostępu do kamery', 'Sprawdź uprawnienia przeglądarki i połączenie HTTPS.');
-      }
+    } catch (e2) {
+      console.error('Fallback failed:', e2);
+      showError('Brak dostępu do kamery', 'Sprawdź uprawnienia i HTTPS.');
     }
   }
+}
 
-  async function stopScanner() {
-    try { await html5QrCode?.stop(); } catch(_) {}
-    try { await html5QrCode?.clear(); } catch(_) {}
-  }
+async function stopScanner() {
+  try { await html5QrCode?.stop(); } catch(_) {}
+  try { await html5QrCode?.clear(); } catch(_) {}
+}
 
-  // Ręczne wpisanie kodu
-  document.querySelector('.manual-input').addEventListener('click', () => {
-    document.querySelector('.code-input-container').classList.add('active');
-    document.querySelector('.code-input-field').focus();
+// Helper do POST JSON
+async function postJson(url, payload) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
   });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const ct = res.headers.get('content-type') || '';
+  if (!ct.includes('application/json')) throw new Error(`Oczekiwano JSON, otrzymano ${ct}`);
+  return res.json();
+}
 
-  function closeCodeInput() {
-    document.querySelector('.code-input-container').classList.remove('active');
-    setTimeout(() => {
-      document.querySelector('.code-input-field').value = '';
-      document.querySelector('.code-input-field-container').classList.remove('error');
-    }, 300);
-  }
-  document.querySelector('.code-input-overlay').addEventListener('click', closeCodeInput);
+// Ręczne wpisanie kodu
+document.querySelector('.manual-input').addEventListener('click', () => {
+  document.querySelector('.code-input-container').classList.add('active');
+  document.querySelector('.code-input-field').focus();
+});
 
-  async function submitCode() {
-    const input = document.querySelector('.code-input-field');
-    const value = (input.value || '').replace(/\D/g, '').slice(0, 6);
+function closeCodeInput() {
+  document.querySelector('.code-input-container').classList.remove('active');
+  setTimeout(() => {
+    document.querySelector('.code-input-field').value = '';
+    document.querySelector('.code-input-field-container').classList.remove('error');
+  }, 300);
+}
+document.querySelector('.code-input-overlay').addEventListener('click', closeCodeInput);
 
-    if (value.length !== 6) return;
+async function submitCode() {
+  const input = document.querySelector('.code-input-field');
+  const value = (input.value || '').replace(/\D/g, '').slice(0, 6);
+  if (value.length !== 6) return;
 
-    try {
-      const result = await postJson(VALIDATE_URL, { code: value });
-      const found = !!result?.found;
-      closeCodeInput();
-      if (found) {
-        askForPermission(value, null);
-      } else {
-        showError('Nie znaleziono', 'Kod jest nieprawidłowy lub wygasł.');
-      }
-    } catch (err) {
-      console.error('validate(code) failed:', err);
-      closeCodeInput();
-      showError('Błąd sieci/serwera', 'Spróbuj ponownie za chwilę.');
+  try {
+    const result = await postJson('/qr/validate', { code: value });
+    closeCodeInput();
+    if (result?.found) {
+      askForPermission(value, null);
+    } else {
+      showError('Nie znaleziono', 'Kod jest nieprawidłowy lub wygasł.');
     }
+  } catch (err) {
+    console.error(err);
+    closeCodeInput();
+    showError('Błąd sieci/serwera', 'Spróbuj ponownie za chwilę.');
   }
-  window.submitCode = submitCode; // bo onclick w HTML
+}
+window.submitCode = submitCode;
 
-  function askForPermission(code, qrCode){
-    if (code) localStorage.setItem('code', code);
-    if (qrCode) localStorage.setItem('qrCode', qrCode);
-    sendTo('share');
-  }
+function askForPermission(code, qrCode){
+  if (code) localStorage.setItem('code', code);
+  if (qrCode) localStorage.setItem('qrCode', qrCode);
+  sendTo('share');
+}
 
-  // Walidacja pola i aktywacja przycisku
-  document.querySelector('.code-input-field').addEventListener('input', (e) => {
-    e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
-    document.querySelector('.code-input-submit').disabled = e.target.value.length !== 6;
-  });
-
-  // Start skanera po załadowaniu
-  document.addEventListener('DOMContentLoaded', startScanner);
+// Start scanner po załadowaniu
+document.addEventListener('DOMContentLoaded', startScanner);
 </script>
 <script src="assets/app/manifest.js"></script>
 <script src="assets/app/cache.js"></script>
+
 
 
 </body></html>
