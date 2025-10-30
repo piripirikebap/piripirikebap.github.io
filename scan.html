@@ -102,7 +102,7 @@
 <script src="assets/app/bar.js"></script>
 <script>
 let html5QrCode = null;
-let selectedCameraId = null;
+let useBackCamera = true; // domyślnie tylna kamera
 
 function onScanSuccess(decodedText) {
   postJson('/qr/validate', { qrCode: decodedText })
@@ -131,36 +131,17 @@ async function startScanner() {
       throw new Error('Strona musi działać przez HTTPS.');
     }
 
-    const devices = await Html5Qrcode.getCameras();
-    if (!devices || !devices.length) throw new Error('Nie wykryto kamery.');
-
-    // Spróbuj znaleźć tylną kamerę
-    const back = devices.find(d => /back|rear|environment/i.test(d.label));
-    selectedCameraId = (back || devices[0]).id;
-
     if (!html5QrCode) html5QrCode = new Html5Qrcode('reader');
 
     await html5QrCode.start(
-      { deviceId: { exact: selectedCameraId } },
+      { facingMode: useBackCamera ? 'environment' : 'user' },
       { fps: 10, qrbox: { width: 250, height: 250 } },
       onScanSuccess,
       onScanFailure
     );
   } catch (e) {
     console.error('startScanner error:', e);
-    // fallback: użyj facingMode
-    try {
-      if (!html5QrCode) html5QrCode = new Html5Qrcode('reader');
-      await html5QrCode.start(
-        { facingMode: 'environment' },
-        { fps: 10, qrbox: { width: 250, height: 250 } },
-        onScanSuccess,
-        onScanFailure
-      );
-    } catch (e2) {
-      console.error('Fallback failed:', e2);
-      showError('Brak dostępu do kamery', 'Sprawdź uprawnienia i HTTPS.');
-    }
+    showError('Brak dostępu do kamery', 'Sprawdź uprawnienia i HTTPS.');
   }
 }
 
@@ -168,6 +149,16 @@ async function stopScanner() {
   try { await html5QrCode?.stop(); } catch(_) {}
   try { await html5QrCode?.clear(); } catch(_) {}
 }
+
+// 🔁 Przełączanie kamer
+async function toggleCamera() {
+  useBackCamera = !useBackCamera;
+  await stopScanner();
+  await startScanner();
+}
+
+// 💡 Możesz dodać przycisk w HTML, np. pod ramką:
+// <button onclick="toggleCamera()" class="switch-camera">Zmień kamerę</button>
 
 // Helper do POST JSON
 async function postJson(url, payload) {
@@ -218,7 +209,7 @@ async function submitCode() {
 }
 window.submitCode = submitCode;
 
-function askForPermission(code, qrCode){
+function askForPermission(code, qrCode) {
   if (code) localStorage.setItem('code', code);
   if (qrCode) localStorage.setItem('qrCode', qrCode);
   sendTo('share');
@@ -233,3 +224,4 @@ document.addEventListener('DOMContentLoaded', startScanner);
 
 
 </body></html>
+
